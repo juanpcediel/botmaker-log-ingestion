@@ -1,0 +1,28 @@
+version: 0.2
+env:
+  variables:
+    STACK_NAME: ''
+phases:
+  install:
+    runtime-versions:
+      python: 3.12
+    commands:
+      - python -m pip install --upgrade pip
+      - pip install -r requirements-dev.txt
+  pre_build:
+    commands:
+      - echo "Running smoke tests against stack $STACK_NAME"
+      - export API_ENDPOINT=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query 'Stacks[0].Outputs[?OutputKey==`ApiEndpoint`].OutputValue' --output text)
+      - export AUTH_TOKEN=$(aws secretsmanager get-secret-value --secret-id "${STACK_NAME}/prod/webhook-secret" --query SecretString --output text)
+  build:
+    commands:
+      - pytest tests/smoke/ --junitxml=reports/e2e-tests.xml -v
+reports:
+  SmokeTestReports:
+    files:
+      - reports/e2e-tests.xml
+    file-format: JUNITXML
+artifacts:
+  files:
+    - reports/**/*
+  base-directory: .

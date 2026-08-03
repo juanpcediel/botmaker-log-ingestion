@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+reports/
+.hypothesis/
+
+# CDK
+cdk.out/
+
+# OS
+.DS_Store
+Thumbs.db
+nul
+
+# Environment files
+.env
+env.json
+
+# SAM (legacy - migrated to CDK)
+.aws-sam/
+
+# Secrets - never commit
+samconfig.toml

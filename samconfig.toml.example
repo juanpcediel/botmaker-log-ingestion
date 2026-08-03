@@ -1,0 +1,54 @@
+# AWS SAM CLI deployment configuration example
+# Copy this file to samconfig.toml and fill in your actual values.
+#
+# Usage:
+#   cp samconfig.toml.example samconfig.toml
+#   # Edit samconfig.toml with your values
+#   sam deploy
+
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "botmaker-log-ingestion-dev"
+region = "us-east-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM CAPABILITY_NAMED_IAM"
+resolve_s3 = true
+s3_prefix = "botmaker-log-ingestion"
+parameter_overrides = [
+    "Environment=dev",
+    "FirehoseBufferIntervalSeconds=300",
+    "FirehoseBufferSizeMB=64",
+    "PartitionProjectionStartDate=2026-01-01",
+    "ParquetCompression=SNAPPY",
+    "EnableAthenaWorkGroup=true",
+    "AthenaResultsRetentionDays=30",
+]
+
+[default.build.parameters]
+use_container = false
+cached = true
+parallel = true
+
+[default.validate.parameters]
+lint = true
+
+[default.local_invoke.parameters]
+env_vars = "env.json"
+
+[prod.deploy.parameters]
+stack_name = "botmaker-log-ingestion-prod"
+region = "us-east-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM CAPABILITY_NAMED_IAM"
+resolve_s3 = true
+s3_prefix = "botmaker-log-ingestion"
+parameter_overrides = [
+    "Environment=prod",
+    "FirehoseBufferIntervalSeconds=300",
+    "FirehoseBufferSizeMB=128",
+    "PartitionProjectionStartDate=2026-01-01",
+    "ParquetCompression=SNAPPY",
+    "EnableAthenaWorkGroup=true",
+    "AthenaResultsRetentionDays=30",
+]

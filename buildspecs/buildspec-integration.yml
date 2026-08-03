@@ -1,0 +1,33 @@
+version: 0.2
+env:
+  variables:
+    STACK_NAME: ''
+phases:
+  install:
+    runtime-versions:
+      python: 3.12
+    commands:
+      - python -m pip install --upgrade pip
+      - pip install -r requirements-dev.txt
+  pre_build:
+    commands:
+      - echo "Running integration tests against stack $STACK_NAME"
+      - export API_ENDPOINT=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query 'Stacks[0].Outputs[?OutputKey==`ApiEndpoint`].OutputValue' --output text)
+      - export LOGS_BUCKET=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query 'Stacks[0].Outputs[?OutputKey==`LogsBucketName`].OutputValue' --output text)
+      - export GLUE_DATABASE=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query 'Stacks[0].Outputs[?OutputKey==`GlueDatabaseName`].OutputValue' --output text)
+      - export ATHENA_WORKGROUP=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query 'Stacks[0].Outputs[?OutputKey==`AthenaWorkGroupName`].OutputValue' --output text)
+      - export FIREHOSE_STREAM=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query 'Stacks[0].Outputs[?OutputKey==`FirehoseStreamName`].OutputValue' --output text)
+      - export SECRET_ARN=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query 'Stacks[0].Outputs[?OutputKey==`WebhookSecretArn`].OutputValue' --output text 2>/dev/null || echo "")
+      - export AUTH_TOKEN=$(aws secretsmanager get-secret-value --secret-id "${STACK_NAME}/dev/webhook-secret" --query SecretString --output text 2>/dev/null || echo "test-token")
+  build:
+    commands:
+      - pytest tests/integration/ tests/e2e/ --junitxml=reports/integration-tests.xml -v
+reports:
+  IntegrationTestReports:
+    files:
+      - reports/integration-tests.xml
+    file-format: JUNITXML
+artifacts:
+  files:
+    - reports/**/*
+  base-directory: .

@@ -1,0 +1,700 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  CI/CD Pipeline for Botmaker Log Ingestion.
+  8-stage CodePipeline: Source, ValidateAndTest, Package, DeployDev,
+  IntegrationTests, ManualApproval, DeployProd, SmokeTestProd.
+
+# -----------------------------------------------------------------------------
+# Parameters
+# -----------------------------------------------------------------------------
+Parameters:
+  ConnectionArn:
+    Type: String
+    Description: ARN of the AWS CodeConnections connection to GitHub.
+
+  RepositoryOwner:
+    Type: String
+    Description: GitHub organization or user that owns the repository.
+
+  RepositoryName:
+    Type: String
+    Description: GitHub repository name.
+
+  BranchName:
+    Type: String
+    Default: main
+    Description: Branch to track for automatic pipeline triggers.
+
+  DevStackName:
+    Type: String
+    Default: botmaker-log-ingestion-dev
+    Description: CloudFormation stack name for the dev environment.
+
+  ProdStackName:
+    Type: String
+    Default: botmaker-log-ingestion-prod
+    Description: CloudFormation stack name for the prod environment.
+
+  ApprovalNotificationArn:
+    Type: String
+    Default: ''
+    Description: Optional SNS topic ARN for manual approval notifications.
+
+# -----------------------------------------------------------------------------
+# Conditions
+# -----------------------------------------------------------------------------
+Conditions:
+  HasApprovalNotification: !Not
+    - !Equals
+      - !Ref ApprovalNotificationArn
+      - ''
+
+# -----------------------------------------------------------------------------
+# Resources
+# -----------------------------------------------------------------------------
+Resources:
+
+  # ---------------------------------------------------------------------------
+  # Artifact Bucket
+  # ---------------------------------------------------------------------------
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: CleanupOldArtifacts
+            Status: Enabled
+            ExpirationInDays: 30
+
+  # ---------------------------------------------------------------------------
+  # IAM Roles
+  # ---------------------------------------------------------------------------
+  CodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CodeBuildBasePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: CloudWatchLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/*'
+              - Sid: S3Artifacts
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                Resource:
+                  - !Sub '${ArtifactBucket.Arn}/*'
+              - Sid: S3ArtifactBucketList
+                Effect: Allow
+                Action:
+                  - s3:GetBucketAcl
+                  - s3:GetBucketLocation
+                Resource:
+                  - !GetAtt ArtifactBucket.Arn
+              - Sid: CloudFormationDescribe
+                Effect: Allow
+                Action:
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DescribeStackResources
+                  - cloudformation:ListStackResources
+                Resource:
+                  - !Sub 'arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${DevStackName}/*'
+                  - !Sub 'arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ProdStackName}/*'
+              - Sid: SecretsManagerIntegrationTests
+                Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource:
+                  - !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:botmaker/*'
+              - Sid: AthenaEndToEnd
+                Effect: Allow
+                Action:
+                  - athena:StartQueryExecution
+                  - athena:GetQueryExecution
+                  - athena:GetQueryResults
+                Resource:
+                  - !Sub 'arn:aws:athena:${AWS::Region}:${AWS::AccountId}:workgroup/*'
+              - Sid: GlueAccess
+                Effect: Allow
+                Action:
+                  - glue:GetTable
+                  - glue:GetDatabase
+                  - glue:GetPartitions
+                Resource:
+                  - !Sub 'arn:aws:glue:${AWS::Region}:${AWS::AccountId}:catalog'
+                  - !Sub 'arn:aws:glue:${AWS::Region}:${AWS::AccountId}:database/*'
+                  - !Sub 'arn:aws:glue:${AWS::Region}:${AWS::AccountId}:table/*'
+              - Sid: S3DataAccess
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                  - s3:GetBucketLocation
+                  - s3:PutObject
+                Resource:
+                  - !Sub 'arn:aws:s3:::${DevStackName}-*'
+                  - !Sub 'arn:aws:s3:::${DevStackName}-*/*'
+                  - !Sub 'arn:aws:s3:::${ProdStackName}-*'
+                  - !Sub 'arn:aws:s3:::${ProdStackName}-*/*'
+              - Sid: CodeBuildReports
+                Effect: Allow
+                Action:
+                  - codebuild:CreateReportGroup
+                  - codebuild:CreateReport
+                  - codebuild:UpdateReport
+                  - codebuild:BatchPutTestCases
+                  - codebuild:BatchPutCodeCoverages
+                Resource:
+                  - !Sub 'arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:report-group/*'
+
+  PipelineServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CodePipelinePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: S3Artifacts
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:GetBucketVersioning
+                  - s3:PutObject
+                Resource:
+                  - !GetAtt ArtifactBucket.Arn
+                  - !Sub '${ArtifactBucket.Arn}/*'
+              - Sid: CodeBuildActions
+                Effect: Allow
+                Action:
+                  - codebuild:BatchGetBuilds
+                  - codebuild:StartBuild
+                Resource:
+                  - !GetAtt ValidateAndTestProject.Arn
+                  - !GetAtt PackageProject.Arn
+                  - !GetAtt IntegrationTestProject.Arn
+                  - !GetAtt SmokeTestProject.Arn
+              - Sid: CloudFormationDeploy
+                Effect: Allow
+                Action:
+                  - cloudformation:CreateStack
+                  - cloudformation:UpdateStack
+                  - cloudformation:DeleteStack
+                  - cloudformation:DescribeStacks
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:SetStackPolicy
+                  - cloudformation:ValidateTemplate
+                Resource:
+                  - !Sub 'arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${DevStackName}/*'
+                  - !Sub 'arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ProdStackName}/*'
+              - Sid: IAMPassRole
+                Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource:
+                  - !GetAtt CloudFormationDeployRole.Arn
+              - Sid: CodeConnections
+                Effect: Allow
+                Action:
+                  - codestar-connections:UseConnection
+                Resource:
+                  - !Ref ConnectionArn
+              - Sid: SNSApproval
+                Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource:
+                  - !If
+                    - HasApprovalNotification
+                    - !Ref ApprovalNotificationArn
+                    - !Sub 'arn:aws:sns:${AWS::Region}:${AWS::AccountId}:no-topic-configured'
+
+  CloudFormationDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CloudFormationDeployPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: IAMRoleManagement
+                Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:DeleteRole
+                  - iam:GetRole
+                  - iam:PutRolePolicy
+                  - iam:DeleteRolePolicy
+                  - iam:GetRolePolicy
+                  - iam:AttachRolePolicy
+                  - iam:DetachRolePolicy
+                  - iam:PassRole
+                  - iam:TagRole
+                  - iam:UntagRole
+                  - iam:UpdateAssumeRolePolicy
+                Resource:
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/${DevStackName}-*'
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/${ProdStackName}-*'
+              - Sid: LambdaManagement
+                Effect: Allow
+                Action:
+                  - lambda:CreateFunction
+                  - lambda:DeleteFunction
+                  - lambda:GetFunction
+                  - lambda:GetFunctionConfiguration
+                  - lambda:UpdateFunctionCode
+                  - lambda:UpdateFunctionConfiguration
+                  - lambda:AddPermission
+                  - lambda:RemovePermission
+                  - lambda:TagResource
+                  - lambda:UntagResource
+                  - lambda:PutFunctionConcurrency
+                  - lambda:DeleteFunctionConcurrency
+                  - lambda:ListTags
+                Resource:
+                  - !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${DevStackName}-*'
+                  - !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProdStackName}-*'
+              - Sid: APIGatewayManagement
+                Effect: Allow
+                Action:
+                  - apigateway:GET
+                  - apigateway:POST
+                  - apigateway:PUT
+                  - apigateway:PATCH
+                  - apigateway:DELETE
+                  - apigateway:TagResource
+                  - apigateway:UntagResource
+                Resource:
+                  - !Sub 'arn:aws:apigateway:${AWS::Region}::/apis/*'
+                  - !Sub 'arn:aws:apigateway:${AWS::Region}::/apis'
+              - Sid: S3Management
+                Effect: Allow
+                Action:
+                  - s3:CreateBucket
+                  - s3:DeleteBucket
+                  - s3:GetBucketPolicy
+                  - s3:PutBucketPolicy
+                  - s3:DeleteBucketPolicy
+                  - s3:PutEncryptionConfiguration
+                  - s3:GetEncryptionConfiguration
+                  - s3:PutBucketPublicAccessBlock
+                  - s3:GetBucketPublicAccessBlock
+                  - s3:PutLifecycleConfiguration
+                  - s3:GetLifecycleConfiguration
+                  - s3:PutBucketTagging
+                  - s3:GetBucketTagging
+                Resource:
+                  - !Sub 'arn:aws:s3:::${DevStackName}-*'
+                  - !Sub 'arn:aws:s3:::${ProdStackName}-*'
+              - Sid: FirehoseManagement
+                Effect: Allow
+                Action:
+                  - firehose:CreateDeliveryStream
+                  - firehose:DeleteDeliveryStream
+                  - firehose:DescribeDeliveryStream
+                  - firehose:UpdateDestination
+                  - firehose:TagDeliveryStream
+                  - firehose:UntagDeliveryStream
+                  - firehose:ListTagsForDeliveryStream
+                Resource:
+                  - !Sub 'arn:aws:firehose:${AWS::Region}:${AWS::AccountId}:deliverystream/${DevStackName}-*'
+                  - !Sub 'arn:aws:firehose:${AWS::Region}:${AWS::AccountId}:deliverystream/${ProdStackName}-*'
+              - Sid: GlueManagement
+                Effect: Allow
+                Action:
+                  - glue:CreateDatabase
+                  - glue:DeleteDatabase
+                  - glue:GetDatabase
+                  - glue:UpdateDatabase
+                  - glue:CreateTable
+                  - glue:DeleteTable
+                  - glue:GetTable
+                  - glue:UpdateTable
+                Resource:
+                  - !Sub 'arn:aws:glue:${AWS::Region}:${AWS::AccountId}:catalog'
+                  - !Sub 'arn:aws:glue:${AWS::Region}:${AWS::AccountId}:database/${DevStackName}*'
+                  - !Sub 'arn:aws:glue:${AWS::Region}:${AWS::AccountId}:database/${ProdStackName}*'
+                  - !Sub 'arn:aws:glue:${AWS::Region}:${AWS::AccountId}:table/${DevStackName}*/*'
+                  - !Sub 'arn:aws:glue:${AWS::Region}:${AWS::AccountId}:table/${ProdStackName}*/*'
+              - Sid: AthenaManagement
+                Effect: Allow
+                Action:
+                  - athena:CreateWorkGroup
+                  - athena:DeleteWorkGroup
+                  - athena:GetWorkGroup
+                  - athena:UpdateWorkGroup
+                  - athena:TagResource
+                  - athena:UntagResource
+                  - athena:CreateNamedQuery
+                  - athena:DeleteNamedQuery
+                Resource:
+                  - !Sub 'arn:aws:athena:${AWS::Region}:${AWS::AccountId}:workgroup/${DevStackName}*'
+                  - !Sub 'arn:aws:athena:${AWS::Region}:${AWS::AccountId}:workgroup/${ProdStackName}*'
+              - Sid: SecretsManagerManagement
+                Effect: Allow
+                Action:
+                  - secretsmanager:CreateSecret
+                  - secretsmanager:DeleteSecret
+                  - secretsmanager:DescribeSecret
+                  - secretsmanager:GetSecretValue
+                  - secretsmanager:PutSecretValue
+                  - secretsmanager:TagResource
+                  - secretsmanager:UntagResource
+                  - secretsmanager:UpdateSecret
+                Resource:
+                  - !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:botmaker/*'
+              - Sid: CloudWatchLogsManagement
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:DeleteLogGroup
+                  - logs:DescribeLogGroups
+                  - logs:PutRetentionPolicy
+                  - logs:DeleteRetentionPolicy
+                  - logs:TagResource
+                  - logs:UntagResource
+                Resource:
+                  - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${DevStackName}*'
+                  - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${ProdStackName}*'
+                  - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/apigateway/${DevStackName}*'
+                  - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/apigateway/${ProdStackName}*'
+                  - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/firehose/${DevStackName}*'
+                  - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/firehose/${ProdStackName}*'
+              - Sid: CloudFormationReadStack
+                Effect: Allow
+                Action:
+                  - cloudformation:GetTemplate
+                  - cloudformation:GetTemplateSummary
+                Resource:
+                  - !Sub 'arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${DevStackName}/*'
+                  - !Sub 'arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ProdStackName}/*'
+              - Sid: CloudFormationTransforms
+                Effect: Allow
+                Action:
+                  - cloudformation:CreateChangeSet
+                Resource:
+                  - !Sub 'arn:aws:cloudformation:${AWS::Region}:aws:transform/Serverless-2016-10-31'
+                  - !Sub 'arn:aws:cloudformation:${AWS::Region}:aws:transform/Include'
+
+  # ---------------------------------------------------------------------------
+  # CodeBuild Projects
+  # ---------------------------------------------------------------------------
+  ValidateAndTestProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub '${AWS::StackName}-validate-and-test'
+      Description: Run SAM validate, cfn-lint, unit tests, property tests, schema tests, and infra tests.
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: buildspecs/buildspec-ci.yml
+      TimeoutInMinutes: 20
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+
+  PackageProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub '${AWS::StackName}-package'
+      Description: SAM build and package the application.
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: buildspecs/buildspec-package.yml
+      TimeoutInMinutes: 15
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+
+  IntegrationTestProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub '${AWS::StackName}-integration-tests'
+      Description: Run integration tests against the deployed dev stack.
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+        EnvironmentVariables:
+          - Name: STACK_NAME
+            Value: !Ref DevStackName
+            Type: PLAINTEXT
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: buildspecs/buildspec-integration.yml
+      TimeoutInMinutes: 30
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+
+  SmokeTestProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub '${AWS::StackName}-smoke-tests'
+      Description: Run smoke tests against the deployed prod stack.
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+        EnvironmentVariables:
+          - Name: STACK_NAME
+            Value: !Ref ProdStackName
+            Type: PLAINTEXT
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: buildspecs/buildspec-smoke.yml
+      TimeoutInMinutes: 15
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+
+  # ---------------------------------------------------------------------------
+  # CodePipeline
+  # ---------------------------------------------------------------------------
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub '${AWS::StackName}-pipeline'
+      RoleArn: !GetAtt PipelineServiceRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactBucket
+      RestartExecutionOnUpdate: false
+      Stages:
+        # -----------------------------------------------------------------------
+        # Stage 1: Source
+        # -----------------------------------------------------------------------
+        - Name: Source
+          Actions:
+            - Name: GitHubSource
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeStarSourceConnection
+                Version: '1'
+              Configuration:
+                ConnectionArn: !Ref ConnectionArn
+                FullRepositoryId: !Sub '${RepositoryOwner}/${RepositoryName}'
+                BranchName: !Ref BranchName
+                DetectChanges: 'true'
+                OutputArtifactFormat: CODE_ZIP
+              OutputArtifacts:
+                - Name: SourceOutput
+              RunOrder: 1
+
+        # -----------------------------------------------------------------------
+        # Stage 2: ValidateAndTest
+        # -----------------------------------------------------------------------
+        - Name: ValidateAndTest
+          Actions:
+            - Name: ValidateAndTest
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              Configuration:
+                ProjectName: !Ref ValidateAndTestProject
+              InputArtifacts:
+                - Name: SourceOutput
+              OutputArtifacts:
+                - Name: TestOutput
+              RunOrder: 1
+
+        # -----------------------------------------------------------------------
+        # Stage 3: Package
+        # -----------------------------------------------------------------------
+        - Name: Package
+          Actions:
+            - Name: SamPackage
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              Configuration:
+                ProjectName: !Ref PackageProject
+              InputArtifacts:
+                - Name: SourceOutput
+              OutputArtifacts:
+                - Name: PackagedTemplate
+              RunOrder: 1
+
+        # -----------------------------------------------------------------------
+        # Stage 4: DeployDev
+        # -----------------------------------------------------------------------
+        - Name: DeployDev
+          Actions:
+            - Name: DeployDevStack
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: '1'
+              Configuration:
+                ActionMode: CREATE_UPDATE
+                StackName: !Ref DevStackName
+                TemplatePath: PackagedTemplate::packaged-template.yaml
+                Capabilities: CAPABILITY_IAM,CAPABILITY_AUTO_EXPAND
+                RoleArn: !GetAtt CloudFormationDeployRole.Arn
+                ParameterOverrides: !Sub '{"Environment": "dev"}'
+              InputArtifacts:
+                - Name: PackagedTemplate
+              RunOrder: 1
+
+        # -----------------------------------------------------------------------
+        # Stage 5: IntegrationTests
+        # -----------------------------------------------------------------------
+        - Name: IntegrationTests
+          Actions:
+            - Name: RunIntegrationTests
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              Configuration:
+                ProjectName: !Ref IntegrationTestProject
+              InputArtifacts:
+                - Name: SourceOutput
+              OutputArtifacts:
+                - Name: IntegrationTestOutput
+              RunOrder: 1
+
+        # -----------------------------------------------------------------------
+        # Stage 6: ManualApproval
+        # -----------------------------------------------------------------------
+        - Name: ManualApproval
+          Actions:
+            - Name: ApproveDeployment
+              ActionTypeId:
+                Category: Approval
+                Owner: AWS
+                Provider: Manual
+                Version: '1'
+              Configuration:
+                CustomData: 'Approve deployment to production. Integration tests passed on dev.'
+                NotificationArn: !If
+                  - HasApprovalNotification
+                  - !Ref ApprovalNotificationArn
+                  - !Ref 'AWS::NoValue'
+              RunOrder: 1
+
+        # -----------------------------------------------------------------------
+        # Stage 7: DeployProd
+        # -----------------------------------------------------------------------
+        - Name: DeployProd
+          Actions:
+            - Name: DeployProdStack
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: '1'
+              Configuration:
+                ActionMode: CREATE_UPDATE
+                StackName: !Ref ProdStackName
+                TemplatePath: PackagedTemplate::packaged-template.yaml
+                Capabilities: CAPABILITY_IAM,CAPABILITY_AUTO_EXPAND
+                RoleArn: !GetAtt CloudFormationDeployRole.Arn
+                ParameterOverrides: !Sub '{"Environment": "prod"}'
+              InputArtifacts:
+                - Name: PackagedTemplate
+              RunOrder: 1
+
+        # -----------------------------------------------------------------------
+        # Stage 8: SmokeTestProd
+        # -----------------------------------------------------------------------
+        - Name: SmokeTestProd
+          Actions:
+            - Name: RunSmokeTests
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              Configuration:
+                ProjectName: !Ref SmokeTestProject
+              InputArtifacts:
+                - Name: SourceOutput
+              OutputArtifacts:
+                - Name: SmokeTestOutput
+              RunOrder: 1
+
+# -----------------------------------------------------------------------------
+# Outputs
+# -----------------------------------------------------------------------------
+Outputs:
+  PipelineName:
+    Description: Name of the CodePipeline pipeline.
+    Value: !Ref Pipeline
+
+  DevStackName:
+    Description: Name of the deployed dev CloudFormation stack.
+    Value: !Ref DevStackName
+
+  ProdStackName:
+    Description: Name of the deployed prod CloudFormation stack.
+    Value: !Ref ProdStackName

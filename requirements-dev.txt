@@ -1,0 +1,10 @@
+-r requirements.txt
+pytest>=8.0.0
+pytest-cov>=4.1.0
+hypothesis>=6.92.0
+pyarrow>=15.0.0
+cfn-lint>=0.83.0
+aws-sam-cli>=1.100.0
+moto[secretsmanager,firehose,s3]>=5.0.0
+ruff>=0.2.0
+boto3-stubs[firehose,secretsmanager,s3,athena]>=1.34.0

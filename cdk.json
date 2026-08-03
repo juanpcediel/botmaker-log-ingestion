@@ -1,0 +1,12 @@
+{
+  "app": "python infra/app.py",
+  "watch": {
+    "include": ["infra/**", "src/**"]
+  },
+  "context": {
+    "connectionArn": "",
+    "repositoryOwner": "your-org",
+    "repositoryName": "botmaker-log-ingestion",
+    "branchName": "main"
+  }
+}
