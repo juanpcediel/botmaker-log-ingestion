@@ -38,7 +38,7 @@ os.environ.setdefault("SECRET_ID", "test-secret")
 @pytest.fixture(autouse=True)
 def _clear_config_cache():
     """Clear the config LRU cache between tests."""
-    from src.config import get_config
+    from config import get_config
     get_config.cache_clear()
     yield
     get_config.cache_clear()
@@ -93,7 +93,7 @@ class TestHappyPath:
     def test_returns_202_with_ingestion_id(
         self, valid_event, mock_sm_client, mock_firehose_client, mock_secret_cache
     ):
-        from src.handler import lambda_handler
+        from handler import lambda_handler
 
         response = lambda_handler(valid_event, None)
 
@@ -107,7 +107,7 @@ class TestHappyPath:
     def test_firehose_put_record_called(
         self, valid_event, mock_sm_client, mock_firehose_client, mock_secret_cache
     ):
-        from src.handler import lambda_handler
+        from handler import lambda_handler
 
         lambda_handler(valid_event, None)
 
@@ -128,7 +128,7 @@ class TestInvalidJsonBody:
     def test_invalid_json_returns_400(
         self, valid_event, mock_sm_client, mock_firehose_client, mock_secret_cache
     ):
-        from src.handler import lambda_handler
+        from handler import lambda_handler
 
         valid_event["body"] = "not-json{{"
         response = lambda_handler(valid_event, None)
@@ -140,7 +140,7 @@ class TestInvalidJsonBody:
     def test_empty_body_returns_400(
         self, valid_event, mock_sm_client, mock_firehose_client, mock_secret_cache
     ):
-        from src.handler import lambda_handler
+        from handler import lambda_handler
 
         valid_event["body"] = ""
         response = lambda_handler(valid_event, None)
@@ -159,7 +159,7 @@ class TestArrayBody:
     def test_array_body_returns_400(
         self, valid_event, mock_sm_client, mock_firehose_client, mock_secret_cache
     ):
-        from src.handler import lambda_handler
+        from handler import lambda_handler
 
         valid_event["body"] = json.dumps([1, 2, 3])
         response = lambda_handler(valid_event, None)
@@ -192,7 +192,7 @@ class TestPrimitiveBodies:
     def test_primitive_json_returns_400(
         self, valid_event, mock_sm_client, mock_firehose_client, mock_secret_cache, primitive
     ):
-        from src.handler import lambda_handler
+        from handler import lambda_handler
 
         valid_event["body"] = primitive
         response = lambda_handler(valid_event, None)
@@ -211,7 +211,7 @@ class TestBase64Decoding:
     def test_base64_body_decoded_returns_202(
         self, valid_event, mock_sm_client, mock_firehose_client, mock_secret_cache
     ):
-        from src.handler import lambda_handler
+        from handler import lambda_handler
 
         payload = json.dumps({"eventId": "b64-evt", "eventType": "TEST"})
         valid_event["body"] = base64.b64encode(payload.encode("utf-8")).decode("ascii")
@@ -226,7 +226,7 @@ class TestBase64Decoding:
     def test_invalid_base64_returns_400(
         self, valid_event, mock_sm_client, mock_firehose_client, mock_secret_cache
     ):
-        from src.handler import lambda_handler
+        from handler import lambda_handler
 
         # Valid base64 that doesn't decode to valid UTF-8 JSON
         valid_event["body"] = base64.b64encode(b"\xff\xfe invalid").decode("ascii")
@@ -248,7 +248,7 @@ class TestOversizedPayload:
     def test_oversized_raw_payload_returns_413(
         self, valid_event, mock_sm_client, mock_firehose_client, mock_secret_cache
     ):
-        from src.handler import lambda_handler
+        from handler import lambda_handler
 
         # Create a payload just over 6 MB
         valid_event["body"] = "x" * (6 * 1024 * 1024 + 1)
@@ -270,7 +270,7 @@ class TestOversizedDecodedBody:
     def test_oversized_decoded_body_returns_400(
         self, valid_event, mock_sm_client, mock_firehose_client, mock_secret_cache
     ):
-        from src.handler import lambda_handler
+        from handler import lambda_handler
 
         # Create a valid JSON body just over 1 MB but under 6 MB raw
         large_value = "a" * (1024 * 1024)
@@ -293,8 +293,8 @@ class TestFirehoseFailure:
     def test_firehose_failure_returns_503(
         self, valid_event, mock_sm_client, mock_firehose_client, mock_secret_cache
     ):
-        from src.handler import lambda_handler
-        from src.firehose_client import FirehoseDeliveryError
+        from handler import lambda_handler
+        from firehose_client import FirehoseDeliveryError
 
         with patch("src.handler.deliver_record", side_effect=FirehoseDeliveryError("fail")):
             response = lambda_handler(valid_event, None)
@@ -315,7 +315,7 @@ class TestCorrelationId:
     def test_correlation_id_used_as_request_id_in_record(
         self, valid_event, mock_sm_client, mock_firehose_client, mock_secret_cache
     ):
-        from src.handler import lambda_handler
+        from handler import lambda_handler
 
         valid_event["requestContext"]["requestId"] = "corr-id-xyz-789"
         response = lambda_handler(valid_event, None)
@@ -330,7 +330,7 @@ class TestCorrelationId:
     def test_missing_request_context_generates_uuid(
         self, valid_event, mock_sm_client, mock_firehose_client, mock_secret_cache
     ):
-        from src.handler import lambda_handler
+        from handler import lambda_handler
 
         valid_event["requestContext"] = {}
         response = lambda_handler(valid_event, None)

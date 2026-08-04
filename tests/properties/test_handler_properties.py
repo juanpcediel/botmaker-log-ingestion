@@ -23,7 +23,7 @@ from unittest.mock import patch, MagicMock
 from hypothesis import given, settings, assume
 from hypothesis import strategies as st
 
-from src.config import get_config
+from config import get_config
 
 # ---------------------------------------------------------------------------
 # Hypothesis strategies
@@ -117,7 +117,7 @@ def test_base64_decoding_equivalence(body):
     """
     get_config.cache_clear()
 
-    from src.handler import lambda_handler
+    from handler import lambda_handler
 
     body_str = json.dumps(body, ensure_ascii=False)
 
@@ -174,7 +174,7 @@ def test_non_object_json_rejected_with_400(value):
     """
     get_config.cache_clear()
 
-    from src.handler import lambda_handler
+    from handler import lambda_handler
 
     body_str = json.dumps(value)
 
@@ -217,7 +217,7 @@ def test_log_entries_never_contain_literal_token(token, body):
     """
     get_config.cache_clear()
 
-    from src.handler import lambda_handler
+    from handler import lambda_handler
 
     # Filter tokens that are too short or are substrings of internal log constants.
     # These would create false positives — the token isn't leaked, it just happens

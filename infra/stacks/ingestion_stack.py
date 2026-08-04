@@ -52,7 +52,6 @@ class IngestionStack(Stack):
         logs_bucket = s3.Bucket(
             self,
             "LogsBucket",
-            bucket_name=f"botmaker-log-ingestion-{environment}-{self.account}",
             encryption=s3.BucketEncryption.S3_MANAGED,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
             enforce_ssl=True,
@@ -256,6 +255,8 @@ class IngestionStack(Stack):
         )
         delivery_stream.add_dependency(glue_table)
         delivery_stream.node.add_dependency(firehose_log_stream)
+        # Ensure IAM policy is fully propagated before Firehose tries to use it
+        delivery_stream.node.add_dependency(firehose_role)
 
         # =====================================================================
         # Lambda Function
@@ -270,7 +271,7 @@ class IngestionStack(Stack):
             code=lambda_.Code.from_asset("src"),
             memory_size=256,
             timeout=Duration.seconds(10),
-            reserved_concurrent_executions=1000,
+            reserved_concurrent_executions=10,
             log_group=lambda_log_group,
             environment={
                 "ENVIRONMENT": environment,

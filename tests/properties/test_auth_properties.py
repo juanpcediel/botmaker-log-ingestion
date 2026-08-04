@@ -20,7 +20,7 @@ from unittest.mock import MagicMock
 from hypothesis import given, settings, assume
 from hypothesis import strategies as st
 
-from src.auth import SecretCache, validate_token
+from auth import SecretCache, validate_token
 
 CONFIGURED_SECRET = "the-real-webhook-secret-value-12345"
 

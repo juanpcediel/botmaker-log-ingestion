@@ -22,7 +22,7 @@ import uuid
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from src.normalizer import normalize
+from normalizer import normalize
 
 # ---------------------------------------------------------------------------
 # Hypothesis strategies
@@ -474,7 +474,7 @@ def test_missing_environment_raises_normalization_error(body):
 
     **Validates: Requirements 2.7**
     """
-    from src.normalizer import NormalizationError
+    from normalizer import NormalizationError
     import pytest
 
     with pytest.raises(NormalizationError) as exc_info:

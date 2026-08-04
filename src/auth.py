@@ -13,8 +13,8 @@ import hmac
 import time
 from typing import Any, Optional
 
-from src.config import SECRET_CACHE_TTL, SECRET_TIMEOUT
-from src.logger import StructuredLogger, EVENT_TYPE_INGESTION_RECEIVED
+from config import SECRET_CACHE_TTL, SECRET_TIMEOUT
+from logger import StructuredLogger, EVENT_TYPE_INGESTION_RECEIVED
 
 
 class SecretCache:

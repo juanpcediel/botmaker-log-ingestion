@@ -13,7 +13,7 @@ import time
 
 import pytest
 
-from src.logger import (
+from logger import (
     EVENT_TYPE_FIREHOSE_ACCEPTED,
     EVENT_TYPE_INGESTION_RECEIVED,
     EVENT_TYPE_INGESTION_VALIDATED,

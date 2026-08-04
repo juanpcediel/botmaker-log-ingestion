@@ -16,7 +16,7 @@ from unittest.mock import MagicMock
 import pytest
 from botocore.exceptions import BotoCoreError, ClientError
 
-from src.firehose_client import (
+from firehose_client import (
     FIREHOSE_BOTO_CONFIG,
     FirehoseDeliveryError,
     deliver_record,

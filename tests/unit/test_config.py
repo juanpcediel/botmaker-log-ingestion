@@ -15,7 +15,7 @@ import os
 
 import pytest
 
-from src.config import (
+from config import (
     MAX_BODY_SIZE_BYTES,
     MAX_RAW_PAYLOAD_BYTES,
     SCHEMA_VERSION,

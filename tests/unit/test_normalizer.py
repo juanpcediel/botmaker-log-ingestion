@@ -24,7 +24,7 @@ os.environ.setdefault("ENVIRONMENT", "test")
 os.environ.setdefault("FIREHOSE_STREAM_NAME", "test")
 os.environ.setdefault("SECRET_ID", "test")
 
-from src.normalizer import (
+from normalizer import (
     NormalizationError,
     extract_event_id,
     extract_event_type,

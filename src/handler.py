@@ -18,21 +18,21 @@ from uuid import uuid4
 
 import boto3
 
-from src.auth import SecretCache, validate_token
-from src.config import get_config, MAX_BODY_SIZE_BYTES, MAX_RAW_PAYLOAD_BYTES
-from src.firehose_client import (
+from auth import SecretCache, validate_token
+from config import get_config, MAX_BODY_SIZE_BYTES, MAX_RAW_PAYLOAD_BYTES
+from firehose_client import (
     FIREHOSE_BOTO_CONFIG,
     FirehoseDeliveryError,
     deliver_record,
 )
-from src.logger import (
+from logger import (
     EVENT_TYPE_FIREHOSE_ACCEPTED,
     EVENT_TYPE_INGESTION_RECEIVED,
     EVENT_TYPE_INGESTION_VALIDATED,
     StructuredLogger,
     Timer,
 )
-from src.normalizer import NormalizationError, normalize
+from normalizer import NormalizationError, normalize
 
 
 # --- Module-level resources (reused across warm invocations) ---

@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.auth import (
+from auth import (
     SecretCache,
     SecretRetrievalError,
     validate_token,
@@ -26,7 +26,7 @@ from src.auth import (
     _get_authorization_header,
     _get_source_ip,
 )
-from src.logger import StructuredLogger
+from logger import StructuredLogger
 
 
 # --- Test Constants ---

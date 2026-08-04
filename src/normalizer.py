@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from src.config import SCHEMA_VERSION
+from config import SCHEMA_VERSION
 
 
 class NormalizationError(Exception):
