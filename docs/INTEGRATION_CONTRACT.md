@@ -28,7 +28,7 @@ Todas las peticiones (POST y GET) deben incluir el header `Authorization` con un
 Authorization: Bearer <token>
 ```
 
-El token es proporcionado por el equipo de infraestructura. Sin este header, la petición será rechazada con HTTP 401.
+El token es proporcionado por el equipo de ciencia de datos. Sin este header, la petición será rechazada con HTTP 401.
 
 ---
 
@@ -289,4 +289,4 @@ curl -X POST https://5g907s87s5.execute-api.us-east-1.amazonaws.com/webhook \
 
 ## Contacto
 
-Para solicitar token de acceso o reportar problemas: equipo de infraestructura.
+Para solicitar token de acceso o reportar problemas: equipo de ciencia de datos.

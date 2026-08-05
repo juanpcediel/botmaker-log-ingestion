@@ -90,6 +90,22 @@ def lambda_handler(event: dict, context: Any) -> dict:
     method = http_info.get("method", "POST").upper()
     path = http_info.get("path", "/webhook")
 
+    # --- Authenticate all requests (POST and GET) ---
+    config = get_config()
+    correlation_id = request_context.get("requestId", str(uuid4()))
+    logger = StructuredLogger(correlation_id, log_payload=config.log_payload)
+
+    auth_valid, auth_error = validate_token(
+        event=event,
+        secret_cache=_secret_cache,
+        sm_client=_sm_client,
+        secret_id=config.secret_id,
+        logger=logger,
+    )
+
+    if not auth_valid:
+        return auth_error
+
     # --- Route GET requests ---
     if method == "GET":
         return _handle_get(event, path)
@@ -133,23 +149,9 @@ def _handle_post(event: dict, context: Any) -> dict:
     """Handle POST /webhook — ingest and normalize event."""
     config = get_config()
 
-    # Generate correlation_id from API Gateway request ID
+    # Correlation ID already set in lambda_handler auth
     correlation_id = event.get("requestContext", {}).get("requestId", str(uuid4()))
-
     logger = StructuredLogger(correlation_id, log_payload=config.log_payload)
-
-    # --- Step 1: Authentication ---
-    with Timer() as auth_timer:
-        auth_valid, auth_error = validate_token(
-            event=event,
-            secret_cache=_secret_cache,
-            sm_client=_sm_client,
-            secret_id=config.secret_id,
-            logger=logger,
-        )
-
-    if not auth_valid:
-        return auth_error
 
     # --- Step 2: Extract and decode body ---
     raw_body = event.get("body", "")
