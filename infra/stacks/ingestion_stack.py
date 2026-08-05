@@ -294,6 +294,50 @@ class IngestionStack(Stack):
 
         webhook_secret.grant_read(ingestion_function)
 
+        # Lambda IAM — Athena query permissions (for GET endpoints)
+        ingestion_function.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "athena:StartQueryExecution",
+                    "athena:GetQueryExecution",
+                    "athena:GetQueryResults",
+                ],
+                resources=[
+                    f"arn:aws:athena:{self.region}:{self.account}:workgroup/botmaker-log-ingestion-{environment}",
+                ],
+            )
+        )
+
+        ingestion_function.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["glue:GetTable", "glue:GetDatabase", "glue:GetPartitions"],
+                resources=[
+                    f"arn:aws:glue:{self.region}:{self.account}:catalog",
+                    f"arn:aws:glue:{self.region}:{self.account}:database/{database_name}",
+                    f"arn:aws:glue:{self.region}:{self.account}:table/{database_name}/*",
+                ],
+            )
+        )
+
+        # S3 read/write for Athena query results
+        ingestion_function.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["s3:GetObject", "s3:PutObject", "s3:ListBucket", "s3:GetBucketLocation"],
+                resources=[
+                    logs_bucket.bucket_arn,
+                    f"{logs_bucket.bucket_arn}/*",
+                ],
+            )
+        )
+
+        # CloudWatch Logs read (for GET /webhook/{id} — checks FIREHOSE_ACCEPTED)
+        ingestion_function.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["logs:FilterLogEvents"],
+                resources=[lambda_log_group.log_group_arn + ":*"],
+            )
+        )
+
         # =====================================================================
         # API Gateway HTTP API
         # =====================================================================
@@ -313,6 +357,27 @@ class IngestionStack(Stack):
         http_api.add_routes(
             path="/webhook",
             methods=[apigwv2.HttpMethod.POST],
+            integration=integration,
+        )
+
+        # GET /webhook/health
+        http_api.add_routes(
+            path="/webhook/health",
+            methods=[apigwv2.HttpMethod.GET],
+            integration=integration,
+        )
+
+        # GET /webhook/{ingestion_id}
+        http_api.add_routes(
+            path="/webhook/{ingestion_id}",
+            methods=[apigwv2.HttpMethod.GET],
+            integration=integration,
+        )
+
+        # GET /webhook (with query params: ?date=...)
+        http_api.add_routes(
+            path="/webhook",
+            methods=[apigwv2.HttpMethod.GET],
             integration=integration,
         )
 

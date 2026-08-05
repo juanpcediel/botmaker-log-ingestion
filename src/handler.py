@@ -33,6 +33,7 @@ from logger import (
     Timer,
 )
 from normalizer import NormalizationError, normalize
+from query_handler import handle_get_by_id, handle_health, handle_list
 
 
 # --- Module-level resources (reused across warm invocations) ---
@@ -75,15 +76,61 @@ def _error_503(message: str) -> dict:
 
 
 def lambda_handler(event: dict, context: Any) -> dict:
-    """AWS Lambda entry point for Botmaker webhook ingestion.
+    """AWS Lambda entry point — routes by HTTP method and path.
 
-    Args:
-        event: API Gateway HTTP API v2.0 Lambda proxy event.
-        context: Lambda runtime context object.
-
-    Returns:
-        API Gateway Lambda proxy response dict.
+    Routes:
+        POST /webhook              → ingest event
+        GET  /webhook/health       → health check
+        GET  /webhook/{id}         → lookup event by ingestion_id
+        GET  /webhook?date=...     → list events (Athena)
     """
+    # Extract HTTP method and path
+    request_context = event.get("requestContext", {})
+    http_info = request_context.get("http", {})
+    method = http_info.get("method", "POST").upper()
+    path = http_info.get("path", "/webhook")
+
+    # --- Route GET requests ---
+    if method == "GET":
+        return _handle_get(event, path)
+
+    # --- Route POST requests (ingestion) ---
+    return _handle_post(event, context)
+
+
+def _handle_get(event: dict, path: str) -> dict:
+    """Route GET requests to appropriate handler."""
+    # GET /webhook/health
+    if path.rstrip("/") == "/webhook/health":
+        return handle_health()
+
+    # GET /webhook/{ingestion_id} — path parameter
+    path_params = event.get("pathParameters") or {}
+    ingestion_id = path_params.get("proxy") or path_params.get("ingestion_id")
+
+    # If path looks like /webhook/<uuid>, extract the ID
+    if not ingestion_id and path.startswith("/webhook/"):
+        segments = path.rstrip("/").split("/")
+        if len(segments) == 3 and segments[2] != "health":
+            ingestion_id = segments[2]
+
+    if ingestion_id:
+        return handle_get_by_id(ingestion_id)
+
+    # GET /webhook?date=... — list/filter
+    query_params = event.get("queryStringParameters") or {}
+    if query_params.get("date"):
+        return handle_list(query_params)
+
+    # No valid GET route matched
+    return _response(400, {
+        "error": "Bad Request",
+        "message": "GET requires either an ingestion_id in path or 'date' query parameter",
+    })
+
+
+def _handle_post(event: dict, context: Any) -> dict:
+    """Handle POST /webhook — ingest and normalize event."""
     config = get_config()
 
     # Generate correlation_id from API Gateway request ID
@@ -217,5 +264,20 @@ def lambda_handler(event: dict, context: Any) -> dict:
         duration_ms=delivery_timer.duration_ms,
     )
 
-    # --- Step 8: Return success ---
-    return _response(202, {"status": "accepted", "ingestion_id": record["ingestion_id"]})
+    # --- Step 8: Return enriched success response ---
+    return _response(202, {
+        "status": "accepted",
+        "ingestion_id": record["ingestion_id"],
+        "event_id": record["event_id"],
+        "event_type": record["event_type"],
+        "fields_extracted": {
+            "conversation_id": record["conversation_id"],
+            "message_id": record["message_id"],
+            "user_id": record["user_id"],
+            "order_form_id": record["order_form_id"],
+            "source_channel": record["source_channel"],
+            "source_bot": record["source_bot"],
+            "severity": record["severity"],
+            "error_code": record["error_code"],
+        },
+    })
