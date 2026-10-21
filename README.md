@@ -400,6 +400,30 @@ ORDER BY received_at;
 
 ---
 
+## Scripts
+
+### Count events by type (`scripts/count_payment_link_events.ps1`)
+
+Counts the total number of events of a given `event_type` across **all** stored
+records (no date filter), by running an Athena query against `botmaker_logs`.
+
+```powershell
+# Default: counts PAYMENT_LINK_EVENT
+.\scripts\count_payment_link_events.ps1
+
+# Count a different event type
+.\scripts\count_payment_link_events.ps1 -EventType EXTERNAL_API_ERROR
+
+# Override database / workgroup if needed
+.\scripts\count_payment_link_events.ps1 -Database botmaker_log_ingestion_dev -WorkGroup botmaker-log-ingestion-dev
+```
+
+Requires AWS CLI v2 configured with Athena permissions (`StartQueryExecution`,
+`GetQueryExecution`, `GetQueryResults`) and read access to the Glue catalog and
+the Athena results bucket.
+
+---
+
 ## Important Notes
 
 - **Always filter by `ingestion_date`** to reduce the amount of data scanned and keep query costs low. Partition projection enables instant partition resolution without a Glue Crawler.
