@@ -3,19 +3,24 @@ phases:
   install:
     runtime-versions:
       python: 3.12
+      nodejs: 20
     commands:
       - python -m pip install --upgrade pip
       - pip install -r requirements-dev.txt
+      - pip install aws-cdk-lib constructs
+      - npm install -g aws-cdk
   pre_build:
     commands:
       - ruff check .
       - ruff format --check .
   build:
     commands:
-      - pytest tests/unit/ tests/properties/ tests/schema/ tests/infra/ --cov=src --cov-report=term-missing --cov-report=xml:reports/coverage.xml --junitxml=reports/unit-tests.xml --cov-fail-under=85 -v
-      - sam validate --lint --template-file template.yaml
-      - cfn-lint template.yaml pipeline/codepipeline.yaml
-      - sam build
+      - pytest tests/unit/ tests/properties/ tests/schema/ --cov=src --cov-report=term-missing --cov-report=xml:reports/coverage.xml --junitxml=reports/unit-tests.xml --cov-fail-under=85 -v
+      # Infrastructure is defined with AWS CDK (infra/). cdk synth validates the
+      # synthesized CloudFormation, which cfn-lint then checks. The SAM
+      # template.yaml was removed (never used).
+      - cdk synth BotmakerLogIngestionDev -o cdk.out
+      - cfn-lint cdk.out/BotmakerLogIngestionDev.template.json pipeline/codepipeline.yaml
 reports:
   UnitTestReports:
     files:

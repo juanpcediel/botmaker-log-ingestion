@@ -227,13 +227,12 @@ class PipelineStack(Stack):
                         codepipeline_actions.CloudFormationCreateUpdateStackAction(
                             action_name="DeployDev",
                             stack_name=dev_stack_name,
-                            template_path=package_output.at_path("packaged-template.yaml"),
+                            template_path=package_output.at_path("cdk.out/BotmakerLogIngestionDev.template.json"),
                             admin_permissions=False,
                             cfn_capabilities=[
                                 cdk.CfnCapabilities.NAMED_IAM,
                                 cdk.CfnCapabilities.AUTO_EXPAND,
                             ],
-                            parameter_overrides={"Environment": "dev"},
                         ),
                     ],
                 ),
@@ -265,13 +264,12 @@ class PipelineStack(Stack):
                         codepipeline_actions.CloudFormationCreateUpdateStackAction(
                             action_name="DeployProd",
                             stack_name=prod_stack_name,
-                            template_path=package_output.at_path("packaged-template.yaml"),
+                            template_path=package_output.at_path("cdk.out/BotmakerLogIngestionProd.template.json"),
                             admin_permissions=False,
                             cfn_capabilities=[
                                 cdk.CfnCapabilities.NAMED_IAM,
                                 cdk.CfnCapabilities.AUTO_EXPAND,
                             ],
-                            parameter_overrides={"Environment": "prod"},
                         ),
                     ],
                 ),

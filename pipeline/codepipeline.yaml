@@ -426,7 +426,7 @@ Resources:
     Type: AWS::CodeBuild::Project
     Properties:
       Name: !Sub '${AWS::StackName}-validate-and-test'
-      Description: Run SAM validate, cfn-lint, unit tests, property tests, schema tests, and infra tests.
+      Description: Run cdk synth, cfn-lint, unit tests, property tests, schema tests, and infra tests.
       ServiceRole: !GetAtt CodeBuildServiceRole.Arn
       Artifacts:
         Type: CODEPIPELINE
@@ -446,7 +446,7 @@ Resources:
     Type: AWS::CodeBuild::Project
     Properties:
       Name: !Sub '${AWS::StackName}-package'
-      Description: SAM build and package the application.
+      Description: CDK synth the dev and prod stacks and publish the CloudFormation templates.
       ServiceRole: !GetAtt CodeBuildServiceRole.Arn
       Artifacts:
         Type: CODEPIPELINE
@@ -596,10 +596,9 @@ Resources:
               Configuration:
                 ActionMode: CREATE_UPDATE
                 StackName: !Ref DevStackName
-                TemplatePath: PackagedTemplate::packaged-template.yaml
+                TemplatePath: PackagedTemplate::cdk.out/BotmakerLogIngestionDev.template.json
                 Capabilities: CAPABILITY_IAM,CAPABILITY_AUTO_EXPAND
                 RoleArn: !GetAtt CloudFormationDeployRole.Arn
-                ParameterOverrides: !Sub '{"Environment": "dev"}'
               InputArtifacts:
                 - Name: PackagedTemplate
               RunOrder: 1
@@ -656,10 +655,9 @@ Resources:
               Configuration:
                 ActionMode: CREATE_UPDATE
                 StackName: !Ref ProdStackName
-                TemplatePath: PackagedTemplate::packaged-template.yaml
+                TemplatePath: PackagedTemplate::cdk.out/BotmakerLogIngestionProd.template.json
                 Capabilities: CAPABILITY_IAM,CAPABILITY_AUTO_EXPAND
                 RoleArn: !GetAtt CloudFormationDeployRole.Arn
-                ParameterOverrides: !Sub '{"Environment": "prod"}'
               InputArtifacts:
                 - Name: PackagedTemplate
               RunOrder: 1

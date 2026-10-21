@@ -3,14 +3,23 @@ phases:
   install:
     runtime-versions:
       python: 3.12
+      nodejs: 20
     commands:
       - python -m pip install --upgrade pip
       - pip install -r requirements.txt
+      - pip install aws-cdk-lib constructs
+      - npm install -g aws-cdk
   build:
     commands:
-      - sam build
-      - sam package --output-template-file packaged-template.yaml --resolve-s3
+      # Infrastructure is defined with AWS CDK (infra/). The SAM template.yaml
+      # was removed (never used — the deployed stack always came from the CDK
+      # app in infra/). Synthesize both stacks and publish the CloudFormation
+      # templates (plus any CDK assets) as the deploy artifacts.
+      - cdk synth BotmakerLogIngestionDev BotmakerLogIngestionProd -o cdk.out
 artifacts:
   files:
-    - packaged-template.yaml
+    - cdk.out/BotmakerLogIngestionDev.template.json
+    - cdk.out/BotmakerLogIngestionProd.template.json
+    - cdk.out/*.assets.json
+    - cdk.out/asset.*/**/*
   discard-paths: no
